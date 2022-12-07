@@ -1,0 +1,10 @@
+Arduino UNO
+resistor 10kohm              x4
+fonte 24V
+Driver Tb6600                x2
+Stepper NEMA 17              x2
+Capacitor 100uF              x4
+Sensor de fim de curso       x2
+Sensor de fluxo
+Sensor de pressão
+
