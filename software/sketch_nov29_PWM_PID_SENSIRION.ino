@@ -1,9 +1,9 @@
 //Victor Resende Lins
 //PEB/COPPE - LEP
-//02/01/2023
+//09/01/2023
 //Válvula proporcional Vinsp para controle VCV e PCV
 //Vexp on-off
-//Controle através de um motor nema17 c/ driver tb6600 via controle de PWM, utilizando Timer 1 do Arduino UNO
+//Controle através de um motor nema17 c/ driver tb6600 via controle de PWM, utilizando interruptores do Timer 1 do Arduino UNO
 
 #include <BufferedOutput.h>  //imprime leitura do sensor no serial evitando block
 #include <loopTimer.h>
@@ -148,7 +148,7 @@ boolean pulso = LOW, pp = LOW;  //estado do pulso
 int ab_max = 560;
 int ref=0; //posição zero da vávula
 volatile int pos; 
- 
+
 //---------------Vexp-----------------------------//
 const int dir_Vexp = 8;             //dir
 const int pul_Vexp = 9;              //10; //step
