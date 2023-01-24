@@ -1,9 +1,9 @@
 //Victor Resende Lins
 //PEB/COPPE - LEP
-//09/01/2023
+//23/01/2023
 //Válvula proporcional Vinsp para controle VCV e PCV
 //Vexp on-off
-//Controle através de um motor nema17 c/ driver tb6600 via controle de PWM, utilizando interruptores do Timer 1 do Arduino UNO
+//Controle através de um motor nema17 c/ driver tb6600 via controle de PWM, utilizando Timer 1 do Arduino UNO
 
 #include <BufferedOutput.h>  //imprime leitura do sensor no serial evitando block
 #include <loopTimer.h>
@@ -106,6 +106,7 @@ class PID {
 //---------------------------------------------------------------//
 
 //-----------------ROTINA---------------------------------------//
+
 createBufferedOutput(bufferedOut, 64, DROP_UNTIL_EMPTY);  //aumentando o buffer
 
 const int PIN_f = A0;  //sensor de fluxo
@@ -115,7 +116,6 @@ double linhaBase_f, linhaBase_p, value_f, value_p, max_val_f = -1000, max_val_p,
 unsigned long t, t2, t_ciclo;
 int modo, cont_Vinsp=0,cont_Vexp=0;
 bool flag;
-
 //--------------Transdutor-----------------------// SENSIRION
 /****** endereços para comunicação ******/
 #define ADDR 0x40 // Endereço do sensor no barramento I2C
@@ -145,10 +145,9 @@ const int pul = 11;              //10; //step
 const int home_switch = 10;      //microswitch
 int intervalo = 25;       //intervalo entre as mudanças de estado do pulso em microseg
 boolean pulso = LOW, pp = LOW;  //estado do pulso
-int ab_max = 560;
+int ab_max = 575;
 int ref=0; //posição zero da vávula
-volatile int pos; 
-
+volatile int pos;  
 //---------------Vexp-----------------------------//
 const int dir_Vexp = 8;             //dir
 const int pul_Vexp = 9;              //10; //step
@@ -160,8 +159,8 @@ int refVexp=0;
 volatile int posVexp;
 
 //-------- Parâmetros do PID--------------//
-PID fluxoPID(9.0000, 0.0000, 0.0000, 0.0);  //GANHOS PID ->kp,ki.kd.kt
-PID pressaoPID(.00, .000025, .00, 0.0);  //GANHOS PID ->kp,ki.kd.kt
+PID fluxoPID(.00, 0.00, 0.00, 0.0);  //GANHOS PID ->kp,ki.kd.kt
+PID pressaoPID(.00, .01, .00, 0.0);  //GANHOS PID ->kp,ki.kd.kt
 //---------------------------------------//
 
 
@@ -174,14 +173,14 @@ void setup() {
   bufferedOut.connect(Serial);
   delay(1000);
   
-  //--------Configurando interruptores para controle PWM usando TIMER 1 do Arduino------//
+  //--------Configurando registradores para controle PWM usando TIMER 1 do Arduino------//
   noInterrupts();                             
   TCCR1B =0;    //prescalar do timer = 64
   TCCR1A =0;    //prescalar do timer = 64
   TCNT1 = 0; 
   
   TCCR1B |= (1<<WGM12) | (1<<CS11) | (1<<CS10);    //prescalar do timer = 64
-  OCR1A = 25-1;    //T = (largura de pulsos)/(prescalar*0.0625 us) -----> T = 100us/4us = 25   ------> checar no osciloscópio: otimizar tempo de subida e ab_max
+  OCR1A = 30-1;    //T = (largura de pulsos)/(prescalar*0.0625 us) -----> T = 100us/4us = 25   ------> checar no osciloscópio: otimizar tempo de subida e ab_max
   TCNT1 = 0; // COUNTER INICIA EM 0
   TIMSK1 |= (1 << OCIE1A);
   interrupts();
@@ -238,7 +237,7 @@ void setup() {
   int initial_pos = ab_max;
   t2 = micros();
 
-  intervalo = 1000;
+  intervalo = 2000;
 
   while (pos <= initial_pos) {
     digitalWrite(dir, HIGH);
@@ -292,6 +291,8 @@ void Passo() {
   delayMicroseconds(intervalo);
 }
 
+
+//-----------------Leitura do sensor de fluxo----------------//
 void setup_sensorFluxo(){
   uint8_t crc;
 
@@ -339,7 +340,7 @@ void setup_sensorFluxo(){
   }
 }
 
-//-----------------Leitura do sensor de fluxo----------------//
+
 float le_fluxo() {
   uint8_t crc;
     //Leitura da medição de fluxo  
@@ -425,10 +426,9 @@ int motorVexp(int x) {        //movimento e posição do motor
   stepCountB = x - posVexp;
 }
 
-
 //-----------------Modos de Ventilação------------------//
 void vcv() {   //modo volume controlado
-  ff = -58.3 * sp + 515.7;  //FEEDFORWARD 14/11 ->SMF3300, mediamovel(janela=250)
+  ff = -50.83 * sp + 508;  //FEEDFORWARD 14/11 ->SMF3300, mediamovel(janela=250)
   fluxoPID.setSetPoint(sp);
   fluxoPID.addnewsample(fluxo);
   fluxoPID.Modo(modo);
@@ -449,12 +449,13 @@ void vcv() {   //modo volume controlado
   if ((sp == 0.00)) {
     //abre Vexp
     ref = ab_max;
-//    if ((fluxo >= .005)) {
+//    refVexp = 0;
+//    if (fluxo >= .009) {
 //      ref++;
-////      pos = ab_max;
+//      pos = ab_max;
 //
 //    }
-//    if (fluxo < .005) {
+//    else if (fluxo < .009) {
 //      ref = ref;
 //      pos = ab_max;
 //    }
@@ -465,50 +466,25 @@ void vcv() {   //modo volume controlado
     //Vexp fechada
 
   }
-
-
 }
 
-void pcv() {  //modo pressao controlada
-  //  if (sp == 0.00) {
-  //    ff = ab_max;
-  //  }
-  //  else {
-  //    ff = 500;  //FEEDFORWARD
-  //  }
+void pcv() {                  //modo pressao controlada
   pressaoPID.setSetPoint(sp);
   pressaoPID.addnewsample(pressao);
   pressaoPID.Modo(modo);
 
   //Processo//
   pressao_pid = (pressaoPID.processo()); //saida PID
-
-  
-  //Correção-posição-Vinsp
   pos_corr = pressao_pid;
+  if (sp == 0.00) {
+//    refVexp = 0; //abre Vexp
+    ref = ab_max;
+  }
+  //Correção-posição-Vinsp
+  else{  
   ref =  pos_corr;
+  }
   
-//  if (digitalRead(home_switch) == LOW) {
-//    ref = ref;
-//    pos = 0;
-//  }
-//
-//  if ((sp == 0.00)) {
-//    ref = ab_max;
-//    if (pressao > 0) {
-//      ref ++;
-//      //      pos = ab_max;
-//    }
-//    else if (pressao == 0) {
-//      ref = ref;
-//      //      pos = ab_max;
-//    }
-//  }
-//
-//  else {
-//    ref =  pos_corr;
-//  }
-
 }
 
 
@@ -529,16 +505,7 @@ void loop() {
     //PID//
     sp_ = processaInput();  //setpoint
   }
-  if( micros() - t_ciclo > t_ie){
-    flag = !flag;
-    t_ciclo = micros();
-    }
-    if(flag == 0){
-     sp = sp_; 
-    }
-   else{
-    sp = 0.00;
-   }
+
 
   //----------------amostragem  400 Hz----------------//
   if (micros() - t >= 2500) { 
@@ -551,30 +518,30 @@ void loop() {
 
     //--------------------DEBUG----------------------//
 
-    bufferedOut.print(millis());
-    bufferedOut.print("\t");
-//    bufferedOut.print(sp);
+//    bufferedOut.print(millis());
 //    bufferedOut.print("\t");
+    bufferedOut.print(sp);
+    bufferedOut.print("\t");
 ////    bufferedOut.print(ref);
 ////    bufferedOut.print("\t");
 ////    bufferedOut.print(posVexp);
 ////   bufferedOut.print("\t");
-////    bufferedOut.print(pos_corr);
-////    bufferedOut.print("\t");
-    bufferedOut.print(fluxoPID.Proporcional());
-    bufferedOut.print("\t");
+//    bufferedOut.print(pos_corr);
+//    bufferedOut.print("\t");
+//    bufferedOut.print(fluxoPID.Proporcional());
+//    bufferedOut.print("\t");
 ////    bufferedOut.print(pressaoPID.Integrador());
 ////    bufferedOut.print("\t");
 ////    bufferedOut.print(pressaoPID.Derivador());
 ////    bufferedOut.print("\t");
 //     bufferedOut.print(fluxo_rlb,4);
 //    bufferedOut.print("\t");
-    bufferedOut.println(fluxo, 4);
+    bufferedOut.print(fluxo, 4);
     bufferedOut.print("\t");
-//    bufferedOut.println(pressao, 1);
+    bufferedOut.print(pressao, 1);
 //    bufferedOut.print(fluxo_rlb, 4);
-//    bufferedOut.print("\t");
-//    bufferedOut.print(ref);
+    bufferedOut.println("\t");
+//    bufferedOut.println(stepCountA);
 //    bufferedOut.print("\t");
 //    bufferedOut.print(refVexp);
 //    bufferedOut.print("\t");
@@ -585,24 +552,35 @@ void loop() {
     t = micros();
   }
 
-  //--------Vexp-----------//
-  if (sp == 0.00) {
+
+//-----------Controle ins e exp---------//
+  if( micros() - t_ciclo > t_ie){
+    flag = !flag;
+    t_ciclo = micros();
+    }
+
+   //------Inspiração--------//
+   if(flag == 0){    
+     sp = sp_; 
+     refVexp = ab_max_Vexp;
+     if(sp ==0.00){
+      refVexp = 0;
+     }
+     motorVexp(refVexp);
+     if(posVexp==refVexp) {      //move a Vinsp apenas apos a Vexp concluir o movimento
+      motorVinsp(ref);
+     }
+    }
+  //------Expiração--------//
+   else{          
+    sp = 0.00;
+    ref = ab_max;
     refVexp = 0;
-  }
-  else if (sp != 0.00) {
-    refVexp = ab_max_Vexp;
+    motorVinsp(ref);
+    if(pos==ref) {      //move a Vinsp apenas apos a Vexp concluir o movimento
+     motorVexp(refVexp);
+    }
+    }
 
-  }
-  motorVexp(refVexp);
-  
-  //------Vinsp-----------//
-  motorVinsp(ref);
-//  if(posVexp==refVexp and ref-pos<0) {      //move a Vinsp apenas apos a Vexp concluir o movimento
-//      //move motorVinsp
-//  }
-//  else if(ref-pos>= 0 ){
-//    motorVinsp(ref);  //move motorVinsp
-//  }
-
-  fluxoPID.posicao(pos);
+  fluxoPID.posicao(pos);        //atualização da posição no PID
 }
