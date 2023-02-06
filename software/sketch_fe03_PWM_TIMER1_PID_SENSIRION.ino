@@ -1,15 +1,15 @@
 //Victor Resende Lins
 //PEB/COPPE - LEP
 //03/02/2023
-//Válvula proporcional Vinsp para controle VCV e PCV
+//Válvula proporcional Vinsp para controle VCV (FF+PID) e PCV (PID)
 //Vexp on-off
-//Controle através de um motor nema17 c/ driver tb6600 via controle de PWM, utilizando Timer 1 do Arduino UNO
+//Controle através de um motor nema17 c/ driver tb6600 via controle de PWM, utilizando os registradores do Timer 1 do Arduino UNO
 
 #include <BufferedOutput.h>  //imprime leitura do sensor no serial evitando block
 #include <loopTimer.h>
 #include <millisDelay.h>
 #include <Wire.h>
-#define ab_max 570
+#define ab_max 590
 #define ab_max_Vexp 1000
 
 //-----------------PID-------------------------------------------//
@@ -56,7 +56,7 @@ class PID {
       if (modo == '1') {        //pcv
         P = (erro) * kP;
 
-        if (pos <= 0 || pos >= ab_max) {
+        if (pos <= -1 || pos >= ab_max+1) {
           I = I;
         }
         else {
@@ -66,7 +66,7 @@ class PID {
         D = (erro - erro1) * kD / deltaTime;
         erro1 = erro;
 
-        if (pos <= 0 || pos >= ab_max) {
+        if (pos <= -1 || pos >= ab_max+1) {
           PID_ = PID_;
         }
         else {
@@ -145,7 +145,7 @@ const int pul = 11;              //pwm
 const int home_switch = 10;      //sensor de fim de curso
 int intervalo = 25;       //intervalo entre as mudanças de estado do pulso em microseg
 boolean pulso = LOW;  //estado do pulso
-int ref = 0, x = 0;   //referência de posição
+int ref = 0, x = ab_max;   //referência de posição
 volatile int pos;
 //---------------Vexp-----------------------------//
 const int dir_Vexp = 8;
@@ -157,13 +157,12 @@ int refVexp = 0, y = 0;
 volatile int posVexp;
 
 //-------- Parâmetros do PID--------------//
-PID fluxoPID(5.00, 0.0005, 0.00, 0.0);//(5.00, 0.0005, 0.00, 0.0);  //GANHOS PID ->kp,ki.kd.kt
-PID pressaoPID(.00, .0001, .00, 0.0);  //GANHOS PID ->kp,ki.kd.kt
+PID fluxoPID(.00, 0.0001, 0.00);       //(5.00, 0.0005, 0.00);  //GANHOS PID ->kp,ki e kd
+PID pressaoPID(.00, .001, .00);        //GANHOS PID ->kp,ki e kd
 //---------------------------------------//
 
-
 //----------Parâmetros Ventilatórios--------//
-unsigned long tct = 3  , tins = 1.5;       //us
+unsigned long tct = 3000000  , tins = 1500000;       //us
 
 //-----------------------------------------//
 void setup() {
@@ -273,6 +272,8 @@ void setup() {
   while (Serial.available() == 0) {}
   modo = Serial.read();
   delay(100);
+  
+  t_ciclo = micros();
 }
 
 //----------Funções-----------//
@@ -370,45 +371,55 @@ float processaInput() {  //leitura dda entrada do serial em array e depois trans
 volatile int stepCountA = ref;
 volatile int stepCountB = refVexp;
 ISR(TIMER1_COMPA_vect) {
+  int dir = 0;
+  
   stepCountA = x - pos;
   stepCountB = y - posVexp;
   //-----Vinsp----//
   if ((stepCountA)) {
-    if (PORTB & 0b00001000) {
-      if (stepCountA > 0 && pos >= 0) {
-        PORTB |=   0b00010000;  //high - abre    (dir)
-        pos--;
-      }
-      else if (stepCountA < 0 && pos <= ab_max) {
-        PORTB &=   ~0b00010000; //low - fecha   (dir)
-        pos++;
-      }
+   if (stepCountA > 0 && pos <= ab_max) {
+      PORTB |=   0b00010000;  //high - fecha    (dir)
+      dir = +1;
+    }
+    else if (stepCountA < 0 && pos >= 0) {
+      PORTB &=   ~0b00010000; //low - abre   (dir)
+      dir = -1;
+    }
+    if (dir) {
       PORTB ^=   0b00001000; //pino 11->Vinsp  (pwm)
+      if (PORTB & 0b00001000) {
+        pos += dir;
+      }
     }
   } else {
     PORTB &= ~0b00001000;
   }
    //-----Vexp----//
+  dir = 0;
   if ((stepCountB)) {
-    if (PORTB & 0b00000010) {
-      if (stepCountB > 0 & pos <= ab_max_Vexp) {
-        PORTB &=   ~0b0000001;      //low - fecha    (dir)
-        posVexp++;
-      }
-      else if (stepCountB > 0 & pos >= 0) {
-        PORTB |=   0b00000001;        //high - abre   (dir)
-        posVexp--;
-      }
-      PORTB ^=    0b00000010;  //pino 9->Vexp  (pwm)
+   if (stepCountB < 0 && posVexp >= 0) {
+      PORTB |=   0b00000001;  //high - abre    (dir)
+      dir = -1;
     }
-  } else {
+    else if (stepCountB > 0 && posVexp <= ab_max_Vexp) {
+      PORTB &=   ~0b00000001; //low - fecha   (dir)
+      dir = +1;
+    }
+    if (dir) {
+      PORTB ^=   0b00000010; //pino 9->Vinsp  (pwm)
+      if (PORTB & 0b00000010) {
+        posVexp += dir;
+      }
+    }
+  }else {
     PORTB &= ~0b00000010;
   }
+
 }
 //-----------------Modos de Ventilação------------------//
   //--------modo volume controlado----------------//
 void vcv() {   //modo volume controlado
-  ff = -50.83 * sp + 508;  //FEEDFORWARD 14/11 ->SMF3300, mediamovel(janela=250)  ********refazer********
+  ff = -35.45 * sp + 562.8;  //FEEDFORWARD 14/11 ->SMF3300, mediamovel(janela=250)  ********refazer********
   fluxoPID.setSetPoint(sp);
   fluxoPID.addnewsample(fluxo);
   fluxoPID.Modo(modo);
@@ -416,7 +427,7 @@ void vcv() {   //modo volume controlado
   pos_corr = (fluxoPID.processo());  //saida PID
   if (digitalRead(home_switch) == LOW) {
     ref = ref;
-    pos = 0;
+//    pos = 0;
   }
   if ((sp == 0.00)) {
     ref = ab_max;
@@ -485,13 +496,14 @@ void loop() {
     bufferedOut.print(pressao, 1);
     //    bufferedOut.print(fluxo_rlb, 4);
     bufferedOut.print("\t");
-    //    bufferedOut.println(stepCountA);
-    //    bufferedOut.print("\t");
     bufferedOut.print(refVexp);
-    //    bufferedOut.print("\t");
-    bufferedOut.println(posVexp);
-    //    bufferedOut.print("\t");
-    //    bufferedOut.println(ref);
+    bufferedOut.print("\t");
+    bufferedOut.print(posVexp);
+            bufferedOut.print("\t");
+    bufferedOut.print(stepCountA);
+        bufferedOut.print("\t");
+                bufferedOut.println(stepCountB);
+
 
     t = micros();
   }
@@ -499,8 +511,9 @@ void loop() {
   if ( micros() - t_ciclo > tct - tins) {
     if ( micros() - t_ciclo > tct) {
       flag = 0;
+      t_ciclo = micros();
     } else  flag = 1;
-    t_ciclo = micros();
+    
   }
   //------Inspiração--------//
   if (flag == 0) {
